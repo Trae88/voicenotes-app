@@ -133,7 +133,41 @@
   #empty-state { text-align: center; padding: 60px 20px; color: var(--muted); }
   #empty-state .big { font-size: 2.5rem; margin-bottom: 12px; }
 
-  /* Toast */
+  /* ── Groq Settings Modal ── */
+  #groq-overlay {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,.7);
+    backdrop-filter: blur(6px);
+    z-index: 300;
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0; pointer-events: none;
+    transition: opacity .2s;
+  }
+  #groq-modal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 24px;
+    width: min(360px, 92vw);
+    box-shadow: var(--shadow);
+  }
+  #groq-modal h3 { font-size: 1rem; font-weight: 700; margin-bottom: 6px; }
+  #groq-modal p { font-size: .83rem; color: var(--muted); margin-bottom: 16px; line-height: 1.5; }
+  #groq-modal a { color: var(--accent); }
+  #groq-key-input {
+    width: 100%; background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 10px; padding: 10px 14px; color: var(--text); font-size: .9rem;
+    font-family: monospace; margin-bottom: 12px;
+  }
+  #groq-key-input:focus { outline: none; border-color: var(--accent); }
+  .groq-btn-row { display: flex; gap: 8px; }
+  #groq-save { background: var(--green); color: #0f1117; font-weight: 700; flex: 1; }
+  #groq-cancel { background: var(--surface2); color: var(--muted); border: 1px solid var(--border); }
+  .groq-status { font-size: .78rem; margin-top: 10px; padding: 6px 10px; border-radius: 8px; }
+  .groq-status.set { background: #1a2e1a; color: var(--green); border: 1px solid #2a4a2a; }
+  .groq-status.unset { background: #2e1a1a; color: #ff9999; border: 1px solid #4a2a2a; }
+
+
   #toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(80px); background: #22263a; border: 1px solid var(--border); color: var(--text); padding: 10px 20px; border-radius: 30px; font-size: .88rem; transition: transform .3s; z-index: 100; pointer-events: none; }
   #toast.show { transform: translateX(-50%) translateY(0); }
 
@@ -479,6 +513,8 @@
   <div id="header-right">
     <span id="note-count">0 notes</span>
     <button id="btn-export-all" title="Export notes">📤 Export</button>
+    <button id="btn-groq-settings" onclick="openGroqSettings()" title="Whisper / Groq settings"
+      style="background:var(--surface2);border:1px solid var(--border);color:var(--muted);padding:6px 10px;border-radius:10px;font-size:.9rem;">⚙️</button>
   </div>
 </header>
 
@@ -579,6 +615,24 @@
   </div>
 </div>
 
+<!-- ── GROQ SETTINGS MODAL ── -->
+<div id="groq-overlay" onclick="if(event.target===this)closeGroqSettings()">
+  <div id="groq-modal">
+    <h3>🎙 Whisper Transcription</h3>
+    <p>
+      Add a free <a href="https://console.groq.com" target="_blank">Groq API key</a> to get
+      <strong>Whisper large-v3-turbo</strong> transcription instead of the browser's built-in
+      speech recognition. Groq is free — 28,000 audio seconds/day, takes ~2 seconds per recording.
+    </p>
+    <input id="groq-key-input" type="password" placeholder="gsk_…" spellcheck="false" autocomplete="off"/>
+    <div class="groq-btn-row">
+      <button id="groq-cancel" onclick="closeGroqSettings()">Cancel</button>
+      <button id="groq-save">Save Key</button>
+    </div>
+    <div id="groq-key-status" class="groq-status unset" style="display:none"></div>
+  </div>
+</div>
+
 <div id="toast"></div>
 
 <!-- ── REMINDER MODAL ── -->
@@ -643,6 +697,8 @@ let dataArray = null;
 let animFrame = null;
 let currentSummary = null;
 let currentTags = [];
+let stream = null;   // hoisted so stopRecording can close tracks
+let ctx = null;      // hoisted AudioContext
 const BARS = 32;
 
 // ── Folder state ──
@@ -749,8 +805,16 @@ document.getElementById('btn-record').addEventListener('click', async () => {
 
 async function startRecording() {
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    const ctx = new AudioContext();
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+        sampleRate: 16000,
+        channelCount: 1
+      }
+    });
+    ctx = new AudioContext();
     const src = ctx.createMediaStreamSource(stream);
     analyser = ctx.createAnalyser();
     analyser.fftSize = 256;
@@ -760,13 +824,6 @@ async function startRecording() {
     mediaRec = new MediaRecorder(stream);
     audioChunks = [];
     mediaRec.ondataavailable = e => { if (e.data.size) audioChunks.push(e.data); };
-    mediaRec.onstop = () => {
-      audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-      audioURL = URL.createObjectURL(audioBlob);
-      stream.getTracks().forEach(t => t.stop());
-      ctx.close();
-      flatBars();
-    };
     mediaRec.start(250);
     isRecording = true;
     elapsed = 0;
@@ -808,6 +865,19 @@ async function startRecording() {
 
 function stopRecording() {
   if (!mediaRec) return;
+
+  // onstop fires asynchronously after all chunks are flushed —
+  // do the post-processing there so the blob is complete.
+  mediaRec.onstop = async () => {
+    audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+    audioURL = URL.createObjectURL(audioBlob);
+    stream.getTracks().forEach(t => t.stop());
+    ctx.close();
+    flatBars();
+    // Kick off Whisper transcription if we have a Groq key
+    await transcribeWithWhisper(audioBlob);
+  };
+
   mediaRec.stop();
   isRecording = false;
   isPaused = false;
@@ -815,14 +885,19 @@ function stopRecording() {
   stopRecognition();
 
   const btn = document.getElementById('btn-record');
-  btn.textContent = 'Record Again';
   btn.classList.remove('recording');
   btn.innerHTML = '🎙 Record Again';
   document.getElementById('btn-pause').disabled = true;
+  document.getElementById('btn-record').disabled = true; // re-enabled after transcription
 
-  // show save row
+  // show save row immediately (transcript fills in async)
   document.getElementById('note-title-row').style.display = 'flex';
-  document.getElementById('btn-summarize').style.display = transcript.trim() ? 'block' : 'none';
+  document.getElementById('btn-summarize').style.display = 'none';
+
+  // Show transcription-in-progress indicator
+  const lt = document.getElementById('live-transcript');
+  lt.className = 'active';
+  lt.innerHTML = '<em>⏳ Transcribing…</em>';
 }
 
 document.getElementById('btn-pause').addEventListener('click', () => {
@@ -874,8 +949,84 @@ function resetRecorder() {
 }
 
 // ─────────────────────────────────────────────
-//  SUMMARIZE
+//  WHISPER TRANSCRIPTION (Groq API)
 // ─────────────────────────────────────────────
+const GROQ_KEY_STORAGE = 'vn_groq_key';
+
+function getGroqKey() {
+  return localStorage.getItem(GROQ_KEY_STORAGE) || '';
+}
+
+async function transcribeWithWhisper(blob) {
+  const groqKey = getGroqKey();
+  const lt = document.getElementById('live-transcript');
+  const btnRecord = document.getElementById('btn-record');
+
+  if (!groqKey) {
+    // No key — fall back to whatever Web Speech captured live
+    lt.innerHTML = transcript.trim()
+      ? transcript
+      : '<em>No Groq key set — using browser speech recognition. <button onclick="openGroqSettings()" style="background:none;border:none;color:var(--accent);cursor:pointer;text-decoration:underline;font-size:inherit;">Add Groq key for Whisper quality →</button></em>';
+    document.getElementById('btn-summarize').style.display = transcript.trim() ? 'block' : 'none';
+    btnRecord.disabled = false;
+    return;
+  }
+
+  try {
+    // Convert webm blob to a File object Groq accepts
+    const file = new File([blob], 'recording.webm', { type: 'audio/webm' });
+    const form = new FormData();
+    form.append('file', file);
+    form.append('model', 'whisper-large-v3-turbo'); // fastest high-quality Groq model
+    form.append('response_format', 'json');
+
+    lt.innerHTML = '<em>⏳ Whisper is transcribing…</em>';
+
+    const resp = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${groqKey}` },
+      body: form
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(err?.error?.message || `HTTP ${resp.status}`);
+    }
+
+    const data = await resp.json();
+    transcript = data.text || '';
+    lt.innerHTML = escHtml(transcript) || '<em>(no speech detected)</em>';
+    document.getElementById('btn-summarize').style.display = transcript.trim() ? 'block' : 'none';
+
+    // Auto-fill title from first 6 words
+    const titleEl = document.getElementById('note-title');
+    if (!titleEl.value && transcript.trim()) {
+      titleEl.value = transcript.trim().split(' ').slice(0,6).join(' ') + '…';
+    }
+
+    toast('✅ Whisper transcription done');
+  } catch(e) {
+    lt.innerHTML = `<em>Whisper error: ${escHtml(e.message)}. <button onclick="openGroqSettings()" style="background:none;border:none;color:var(--accent);cursor:pointer;text-decoration:underline;font-size:inherit;">Check API key →</button></em>`;
+    // Fall back to whatever live speech recognition captured
+    if (transcript.trim()) lt.innerHTML += '<br>' + escHtml(transcript);
+    toast('⚠️ Whisper failed — using browser transcript');
+  } finally {
+    btnRecord.disabled = false;
+  }
+}
+
+// ── Groq Settings Modal ──
+function openGroqSettings() {
+  document.getElementById('groq-overlay').style.opacity = '1';
+  document.getElementById('groq-overlay').style.pointerEvents = 'all';
+  document.getElementById('groq-key-input').value = getGroqKey();
+}
+function closeGroqSettings() {
+  document.getElementById('groq-overlay').style.opacity = '0';
+  document.getElementById('groq-overlay').style.pointerEvents = 'none';
+}
+
+
 document.getElementById('btn-summarize').addEventListener('click', async () => {
   const btn = document.getElementById('btn-summarize');
   btn.textContent = '⏳ Summarizing…';
@@ -1318,9 +1469,36 @@ document.getElementById('btn-export-all').addEventListener('click', () => {
   openExportModal(null);
 });
 
-// ─────────────────────────────────────────────
-//  INIT
-// ─────────────────────────────────────────────
+// ── Groq key save ──
+document.getElementById('groq-save').addEventListener('click', () => {
+  const key = document.getElementById('groq-key-input').value.trim();
+  const statusEl = document.getElementById('groq-key-status');
+  if (!key) {
+    localStorage.removeItem(GROQ_KEY_STORAGE);
+    statusEl.textContent = '🔴 Key cleared — using browser speech recognition';
+    statusEl.className = 'groq-status unset';
+  } else {
+    localStorage.setItem(GROQ_KEY_STORAGE, key);
+    statusEl.textContent = '🟢 Whisper (Groq) active — recording will auto-transcribe after stopping';
+    statusEl.className = 'groq-status set';
+  }
+  statusEl.style.display = 'block';
+  setTimeout(() => closeGroqSettings(), 1800);
+  toast(key ? '✅ Groq key saved — Whisper active!' : '🗑 Key removed');
+  updateGroqIndicator();
+});
+
+function updateGroqIndicator() {
+  const btn = document.getElementById('btn-groq-settings');
+  if (!btn) return;
+  const hasKey = !!getGroqKey();
+  btn.title = hasKey ? '✅ Whisper (Groq) active' : '⚙️ Add Groq key for Whisper quality';
+  btn.style.color = hasKey ? 'var(--green)' : 'var(--muted)';
+  btn.style.borderColor = hasKey ? 'var(--green)' : 'var(--border)';
+}
+updateGroqIndicator();
+
+
 // Build static bars (no animation, no AudioContext) just for visual placeholder
 (function initBars() {
   const w = document.getElementById('waveform');
