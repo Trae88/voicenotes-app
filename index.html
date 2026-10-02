@@ -1,0 +1,1619 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>VoiceNotes — Record & Summarize</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #22263a;
+    --border: #2e3347;
+    --accent: #6c63ff;
+    --accent2: #ff6584;
+    --text: #e8eaf6;
+    --muted: #8890b0;
+    --green: #43d9a2;
+    --red: #ff5c5c;
+    --yellow: #ffd166;
+    --radius: 14px;
+    --shadow: 0 4px 24px rgba(0,0,0,.4);
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f0f2ff;
+      --surface: #ffffff;
+      --surface2: #e8eafc;
+      --border: #d0d4f0;
+      --text: #1a1d2e;
+      --muted: #6670a0;
+    }
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; min-height: 100vh; }
+
+  /* ── Layout ── */
+  header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 16px 20px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 10; backdrop-filter: blur(12px); }
+  header h1 { font-size: 1.2rem; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+  header h1 span.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); display: inline-block; }
+  #note-count { font-size: .8rem; color: var(--muted); background: var(--surface2); padding: 3px 10px; border-radius: 20px; }
+
+  main { max-width: 760px; margin: 0 auto; padding: 20px 16px 100px; }
+
+  /* ── Recorder Card ── */
+  #recorder-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 24px;
+    margin-bottom: 24px;
+    box-shadow: var(--shadow);
+  }
+  #recorder-card h2 { font-size: .85rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-bottom: 16px; }
+
+  /* Waveform */
+  #waveform-wrap { height: 56px; background: var(--surface2); border-radius: 10px; overflow: hidden; margin-bottom: 16px; display: flex; align-items: center; justify-content: center; }
+  #waveform { display: flex; align-items: center; gap: 3px; height: 40px; }
+  .bar { width: 4px; border-radius: 2px; background: var(--accent); transition: height .1s; }
+  #idle-msg { color: var(--muted); font-size: .85rem; }
+
+  /* Timer */
+  #timer { font-size: 1.5rem; font-weight: 700; text-align: center; margin-bottom: 16px; letter-spacing: .05em; color: var(--text); font-variant-numeric: tabular-nums; }
+
+  /* Buttons row */
+  .btn-row { display: flex; gap: 10px; flex-wrap: wrap; }
+  button { cursor: pointer; border: none; border-radius: 10px; font-size: .9rem; font-weight: 600; padding: 10px 20px; transition: opacity .15s, transform .1s; }
+  button:active { transform: scale(.97); }
+  button:disabled { opacity: .4; cursor: default; }
+  #btn-record { background: var(--accent); color: #fff; flex: 1; }
+  #btn-record.recording { background: var(--red); }
+  #btn-record.recording::before { content: '⏹ '; }
+  #btn-record:not(.recording)::before { content: '🎙 '; }
+  #btn-pause { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+  #btn-discard { background: var(--surface2); color: var(--muted); border: 1px solid var(--border); }
+
+  /* Transcript live box */
+  #live-transcript { margin-top: 16px; min-height: 48px; padding: 12px; background: var(--surface2); border-radius: 10px; font-size: .9rem; color: var(--muted); border: 1px solid var(--border); line-height: 1.6; display: none; }
+  #live-transcript.active { display: block; color: var(--text); }
+  #live-transcript em { color: var(--muted); font-style: normal; }
+
+  /* Note title input */
+  #note-title-row { display: flex; gap: 10px; margin-top: 12px; display: none; }
+  #note-title { flex: 1; background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; color: var(--text); font-size: .9rem; }
+  #note-title:focus { outline: none; border-color: var(--accent); }
+  #btn-save { background: var(--green); color: #0f1117; font-weight: 700; white-space: nowrap; }
+
+  /* Summary panel */
+  #summary-panel { background: linear-gradient(135deg, #1e1a3a, #1a2e2a); border: 1px solid #3a3568; border-radius: 10px; padding: 14px; margin-top: 14px; display: none; }
+  #summary-panel h3 { font-size: .8rem; text-transform: uppercase; letter-spacing: .08em; color: #9988dd; margin-bottom: 8px; }
+  #summary-text { font-size: .9rem; line-height: 1.6; color: #d8d0ff; }
+  #summary-tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+  .tag { background: #2d2060; color: #b8a8ff; padding: 3px 10px; border-radius: 20px; font-size: .78rem; }
+  #btn-summarize { margin-top: 12px; background: #6c63ff22; color: #9f97ff; border: 1px solid #4a42aa; width: 100%; font-size: .85rem; }
+
+  /* ── Search bar ── */
+  #search-bar { display: flex; gap: 10px; margin-bottom: 18px; }
+  #search-input { flex: 1; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; color: var(--text); font-size: .9rem; }
+  #search-input:focus { outline: none; border-color: var(--accent); }
+  #filter-select { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; color: var(--text); font-size: .85rem; }
+
+  /* ── Notes list ── */
+  #notes-list { display: flex; flex-direction: column; gap: 14px; }
+  .note-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    transition: border-color .2s;
+  }
+  .note-card:hover { border-color: var(--accent); }
+  .note-card-header { padding: 14px 16px 10px; display: flex; align-items: flex-start; gap: 10px; }
+  .note-icon { font-size: 1.3rem; flex-shrink: 0; margin-top: 2px; }
+  .note-meta { flex: 1; min-width: 0; }
+  .note-title-text { font-size: 1rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .note-sub { font-size: .78rem; color: var(--muted); margin-top: 2px; }
+  .note-actions { display: flex; gap: 6px; flex-shrink: 0; }
+  .note-btn { background: var(--surface2); border: 1px solid var(--border); color: var(--muted); padding: 5px 10px; border-radius: 8px; font-size: .78rem; }
+  .note-btn.danger:hover { background: #ff5c5c22; color: var(--red); border-color: var(--red); }
+  .note-body { padding: 0 16px 14px; }
+  .note-summary-box { background: var(--surface2); border-radius: 8px; padding: 10px 12px; font-size: .85rem; color: var(--muted); line-height: 1.6; margin-bottom: 8px; }
+  .note-summary-box strong { color: var(--text); display: block; margin-bottom: 4px; font-size: .78rem; text-transform: uppercase; letter-spacing: .06em; }
+  .note-tags { display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 8px; }
+  .note-transcript-toggle { font-size: .8rem; color: var(--accent); cursor: pointer; background: none; border: none; padding: 0; text-decoration: underline; }
+  .note-transcript { font-size: .85rem; line-height: 1.6; color: var(--muted); margin-top: 8px; white-space: pre-wrap; display: none; background: var(--surface2); border-radius: 8px; padding: 10px 12px; }
+  audio.note-audio { width: 100%; margin-top: 8px; border-radius: 8px; height: 36px; }
+
+  /* Starred */
+  .note-card.starred { border-color: var(--yellow); }
+  .star-btn { background: none; border: none; font-size: 1rem; cursor: pointer; color: var(--muted); }
+  .star-btn.starred { color: var(--yellow); }
+
+  /* Empty state */
+  #empty-state { text-align: center; padding: 60px 20px; color: var(--muted); }
+  #empty-state .big { font-size: 2.5rem; margin-bottom: 12px; }
+
+  /* Toast */
+  #toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(80px); background: #22263a; border: 1px solid var(--border); color: var(--text); padding: 10px 20px; border-radius: 30px; font-size: .88rem; transition: transform .3s; z-index: 100; pointer-events: none; }
+  #toast.show { transform: translateX(-50%) translateY(0); }
+
+  /* Pulsing record dot */
+  @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:.4;} }
+  .pulse { animation: pulse 1s infinite; }
+
+  /* ── Export button in header ── */
+  #btn-export-all {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 5px 12px;
+    border-radius: 20px;
+    font-size: .8rem;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    cursor: pointer;
+  }
+  #btn-export-all:hover { border-color: var(--accent); color: var(--accent); }
+  #header-right { display: flex; align-items: center; gap: 8px; }
+
+  /* ── Export Modal ── */
+  #export-overlay {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,.65);
+    backdrop-filter: blur(4px);
+    z-index: 200;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .2s;
+  }
+  #export-overlay.open {
+    opacity: 1;
+    pointer-events: all;
+  }
+  #export-modal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 28px 24px 20px;
+    width: min(400px, 92vw);
+    position: relative;
+    transform: translateY(16px);
+    transition: transform .2s;
+  }
+  #export-overlay.open #export-modal { transform: translateY(0); }
+  #export-modal h3 {
+    font-size: 1rem;
+    font-weight: 700;
+    margin-bottom: 4px;
+  }
+  #export-modal .export-subtitle {
+    font-size: .8rem;
+    color: var(--muted);
+    margin-bottom: 18px;
+  }
+  #export-close {
+    position: absolute;
+    top: 14px; right: 14px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    border-radius: 8px;
+    width: 30px; height: 30px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1rem;
+    cursor: pointer;
+    line-height: 1;
+    padding: 0;
+  }
+  #export-close:hover { color: var(--text); border-color: var(--text); }
+  .export-option {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 16px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    cursor: pointer;
+    margin-bottom: 10px;
+    transition: border-color .15s, background .15s;
+  }
+  .export-option:hover { border-color: var(--accent); background: var(--bg); }
+  .export-option:last-child { margin-bottom: 0; }
+  .export-option .export-icon { font-size: 1.6rem; flex-shrink: 0; }
+  .export-option .export-label { flex: 1; }
+  .export-option .export-label strong { display: block; font-size: .92rem; margin-bottom: 2px; }
+  .export-option .export-label span { font-size: .78rem; color: var(--muted); }
+  .export-divider {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 14px 0;
+  }
+  .export-section-title {
+    font-size: .75rem;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    color: var(--muted);
+    margin-bottom: 10px;
+  }
+
+  /* ── Folders ── */
+  #folder-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    overflow-x: auto;
+    padding: 0 0 14px;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  #folder-bar::-webkit-scrollbar { display: none; }
+  .folder-pill {
+    flex-shrink: 0;
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: .82rem;
+    font-weight: 600;
+    cursor: pointer;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    white-space: nowrap;
+    user-select: none;
+    transition: background .15s, color .15s, border-color .15s;
+    position: relative;
+  }
+  .folder-pill:hover { border-color: var(--accent); color: var(--text); }
+  .folder-pill.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+  }
+  .folder-pill.new-folder-pill {
+    border-style: dashed;
+    color: var(--accent);
+    background: transparent;
+  }
+  .folder-pill.new-folder-pill:hover { background: var(--surface2); }
+  .folder-ctx-menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    box-shadow: var(--shadow);
+    z-index: 50;
+    min-width: 150px;
+    overflow: hidden;
+  }
+  .folder-ctx-menu button {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: none;
+    border: none;
+    border-bottom: 1px solid var(--border);
+    padding: 10px 14px;
+    font-size: .85rem;
+    color: var(--text);
+    border-radius: 0;
+  }
+  .folder-ctx-menu button:last-child { border-bottom: none; }
+  .folder-ctx-menu button:hover { background: var(--surface); }
+  .folder-ctx-menu button.danger { color: var(--red); }
+  .folder-badge {
+    display: inline-block;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    font-size: .72rem;
+    padding: 1px 8px;
+    border-radius: 10px;
+    margin-left: 6px;
+    vertical-align: middle;
+  }
+  #note-folder-select {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 10px;
+    color: var(--text);
+    font-size: .85rem;
+    flex-shrink: 0;
+    max-width: 140px;
+  }
+  #note-folder-select:focus { outline: none; border-color: var(--accent); }
+
+  /* ── Reminder badge on note card ── */
+  .remind-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: .72rem;
+    color: var(--yellow);
+    background: rgba(255,209,102,.12);
+    border: 1px solid rgba(255,209,102,.3);
+    border-radius: 20px;
+    padding: 2px 8px;
+    margin-top: 6px;
+  }
+
+  /* ── Reminder Modal ── */
+  #reminder-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,.65);
+    z-index: 200;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+  #reminder-overlay.open { display: flex; }
+  #reminder-modal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    width: 100%;
+    max-width: 480px;
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    max-height: 90vh;
+    overflow-y: auto;
+    opacity: 0;
+    transform: translateY(16px);
+    transition: opacity .2s ease, transform .2s ease;
+  }
+  #reminder-overlay.open #reminder-modal {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  #reminder-modal h2 {
+    font-size: 1rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  #reminder-modal h2 small {
+    font-size: .8rem;
+    font-weight: 400;
+    color: var(--muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .rm-label {
+    font-size: .78rem;
+    text-transform: uppercase;
+    letter-spacing: .07em;
+    color: var(--muted);
+    margin-bottom: 6px;
+    display: block;
+  }
+  #rm-datetime {
+    width: 100%;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 14px;
+    color: var(--text);
+    font-size: .9rem;
+  }
+  #rm-datetime:focus { outline: none; border-color: var(--accent); }
+  .rm-quickpicks { display: flex; gap: 8px; flex-wrap: wrap; }
+  .rm-quickpick {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    border-radius: 20px;
+    font-size: .78rem;
+    padding: 5px 12px;
+    font-weight: 500;
+    transition: border-color .15s, color .15s, background .15s;
+  }
+  .rm-quickpick:hover { border-color: var(--accent); color: var(--accent); background: rgba(108,99,255,.08); }
+  #rm-note-text {
+    width: 100%;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 14px;
+    color: var(--text);
+    font-size: .85rem;
+    resize: vertical;
+    min-height: 64px;
+    font-family: inherit;
+    line-height: 1.5;
+  }
+  #rm-note-text:focus { outline: none; border-color: var(--accent); }
+  #rm-shell-block { display: none; flex-direction: column; gap: 10px; }
+  #rm-shell-block.visible { display: flex; }
+  .rm-shell-label { font-size: .78rem; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); }
+  .rm-code-wrap {
+    position: relative;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 44px 10px 12px;
+  }
+  .rm-code {
+    font-family: 'SF Mono', SFMono-Regular, Consolas, monospace;
+    font-size: .75rem;
+    color: var(--green);
+    white-space: pre-wrap;
+    word-break: break-all;
+    line-height: 1.5;
+  }
+  .rm-copy-btn {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    border-radius: 7px;
+    padding: 4px 8px;
+    font-size: .72rem;
+    font-weight: 600;
+  }
+  .rm-btn-row { display: flex; gap: 10px; justify-content: flex-end; }
+  #rm-btn-cancel { background: var(--surface2); color: var(--muted); border: 1px solid var(--border); }
+  #rm-btn-set { background: var(--yellow); color: #1a1000; font-weight: 700; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1><span class="dot"></span> VoiceNotes</h1>
+  <div id="header-right">
+    <span id="note-count">0 notes</span>
+    <button id="btn-export-all" title="Export notes">📤 Export</button>
+  </div>
+</header>
+
+<main>
+  <!-- ── RECORDER ── -->
+  <div id="recorder-card">
+    <h2>New Recording</h2>
+    <div id="waveform-wrap">
+      <div id="waveform"></div>
+      <span id="idle-msg">Press record to start</span>
+    </div>
+    <div id="timer">0:00</div>
+    <div class="btn-row">
+      <button id="btn-record">Record</button>
+      <button id="btn-pause" disabled>Pause</button>
+      <button id="btn-discard" disabled>Discard</button>
+    </div>
+    <div id="live-transcript">Listening…</div>
+    <div id="note-title-row">
+      <input id="note-title" type="text" placeholder="Note title (auto-filled if blank)…"/>
+      <select id="note-folder-select"></select>
+      <button id="btn-save">Save Note</button>
+    </div>
+    <button id="btn-summarize" style="display:none">✨ Summarize with AI</button>
+    <div id="summary-panel">
+      <h3>AI Summary</h3>
+      <div id="summary-text"></div>
+      <div id="summary-tags"></div>
+    </div>
+  </div>
+
+  <!-- ── SEARCH ── -->
+  <div id="search-bar">
+    <input id="search-input" type="search" placeholder="🔍 Search notes…"/>
+    <select id="filter-select">
+      <option value="all">All</option>
+      <option value="starred">⭐ Starred</option>
+      <option value="summarized">✨ Summarized</option>
+    </select>
+  </div>
+
+  <!-- ── FOLDERS ── -->
+  <div id="folder-bar"></div>
+
+  <!-- ── NOTES LIST ── -->
+  <div id="notes-list"></div>
+  <div id="empty-state" style="display:none">
+    <div class="big">🎙️</div>
+    <p>No notes yet.<br/>Hit <strong>Record</strong> to capture your first thought.</p>
+  </div>
+</main>
+
+<!-- ── EXPORT MODAL ── -->
+<div id="export-overlay">
+  <div id="export-modal" role="dialog" aria-modal="true" aria-labelledby="export-modal-title">
+    <button id="export-close" aria-label="Close export panel">✕</button>
+    <h3 id="export-modal-title">📤 Export Note</h3>
+    <p class="export-subtitle" id="export-subtitle">Choose a format</p>
+
+    <!-- Single-note options (shown when opened from a note card) -->
+    <div id="export-single-section">
+      <p class="export-section-title">This note</p>
+      <div class="export-option" id="export-md-single">
+        <span class="export-icon">📝</span>
+        <div class="export-label">
+          <strong>Export as Markdown</strong>
+          <span>Downloads a .md file for this note</span>
+        </div>
+      </div>
+      <div class="export-option" id="export-pdf-single">
+        <span class="export-icon">🖨️</span>
+        <div class="export-label">
+          <strong>Export as PDF</strong>
+          <span>Opens print dialog with clean layout</span>
+        </div>
+      </div>
+      <hr class="export-divider"/>
+      <p class="export-section-title">All notes</p>
+    </div>
+
+    <!-- All-notes options (always visible) -->
+    <div id="export-all-section">
+      <div class="export-option" id="export-md-all">
+        <span class="export-icon">📚</span>
+        <div class="export-label">
+          <strong>Export All as Markdown</strong>
+          <span>Single .md file with all notes</span>
+        </div>
+      </div>
+      <div class="export-option" id="export-pdf-all">
+        <span class="export-icon">📄</span>
+        <div class="export-label">
+          <strong>Export All as PDF</strong>
+          <span>Print all notes as a clean document</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<!-- ── REMINDER MODAL ── -->
+<div id="reminder-overlay">
+  <div id="reminder-modal">
+    <h2>⏰ Set Reminder <small id="rm-note-title-display"></small></h2>
+
+    <div>
+      <label class="rm-label" for="rm-datetime">Date &amp; Time</label>
+      <input type="datetime-local" id="rm-datetime"/>
+      <div class="rm-quickpicks" style="margin-top:8px">
+        <button class="rm-quickpick" data-quick="1h">In 1 hour</button>
+        <button class="rm-quickpick" data-quick="tomorrow9">Tomorrow 9 am</button>
+        <button class="rm-quickpick" data-quick="nextmon9">Next Monday 9 am</button>
+      </div>
+    </div>
+
+    <div>
+      <label class="rm-label" for="rm-note-text">Reminder note (editable)</label>
+      <textarea id="rm-note-text" rows="3"></textarea>
+    </div>
+
+    <div id="rm-shell-block">
+      <div class="rm-shell-label">Run in Minis terminal to create the reminder:</div>
+      <div class="rm-code-wrap">
+        <pre class="rm-code" id="rm-apple-cmd"></pre>
+        <button class="rm-copy-btn" id="rm-copy-apple">Copy</button>
+      </div>
+      <div class="rm-shell-label" style="margin-top:4px">Or schedule a Minis prompt reminder:</div>
+      <div class="rm-code-wrap">
+        <pre class="rm-code" id="rm-minis-cmd"></pre>
+        <button class="rm-copy-btn" id="rm-copy-minis">Copy</button>
+      </div>
+    </div>
+
+    <div class="rm-btn-row">
+      <button id="rm-btn-cancel">Cancel</button>
+      <button id="rm-btn-set">⏰ Set Reminder</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ─────────────────────────────────────────────
+//  STATE
+// ─────────────────────────────────────────────
+let notes = JSON.parse(localStorage.getItem('vn_notes') || '[]');
+let mediaRec = null;
+let audioChunks = [];
+let audioBlob = null;
+let audioURL = null;
+let isRecording = false;
+let isPaused = false;
+let timerInterval = null;
+let elapsed = 0;
+let waveInterval = null;
+let recognition = null;
+let transcript = '';
+let interimTranscript = '';
+let analyser = null;
+let dataArray = null;
+let animFrame = null;
+let currentSummary = null;
+let currentTags = [];
+const BARS = 32;
+
+// ── Folder state ──
+let folders = (function() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('vn_folders') || '[]');
+    if (!Array.isArray(saved) || !saved.length) return ['General'];
+    if (!saved.includes('General')) saved.unshift('General');
+    return saved;
+  } catch(e) { return ['General']; }
+})();
+let activeFolder = 'All';
+
+// ─────────────────────────────────────────────
+//  SAVE / LOAD
+// ─────────────────────────────────────────────
+function saveNotes() {
+  localStorage.setItem('vn_notes', JSON.stringify(notes));
+}
+
+// ─────────────────────────────────────────────
+//  TOAST
+// ─────────────────────────────────────────────
+function toast(msg, duration = 2200) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), duration);
+}
+
+// ─────────────────────────────────────────────
+//  WAVEFORM
+// ─────────────────────────────────────────────
+function animateWave() {
+  if (!analyser) return;
+  analyser.getByteFrequencyData(dataArray);
+  const bars = document.querySelectorAll('.bar');
+  const slice = Math.floor(dataArray.length / BARS);
+  bars.forEach((b, i) => {
+    const val = dataArray[i * slice] || 0;
+    b.style.height = Math.max(4, (val / 255) * 40) + 'px';
+    b.style.opacity = 0.5 + (val / 510);
+  });
+  animFrame = requestAnimationFrame(animateWave);
+}
+function flatBars() {
+  cancelAnimationFrame(animFrame);
+  document.querySelectorAll('.bar').forEach(b => { b.style.height = '4px'; b.style.opacity = '0.5'; });
+}
+
+// ─────────────────────────────────────────────
+//  TIMER
+// ─────────────────────────────────────────────
+function formatTime(s) {
+  const m = Math.floor(s / 60);
+  const sec = s % 60;
+  return `${m}:${sec.toString().padStart(2, '0')}`;
+}
+function startTimer() {
+  timerInterval = setInterval(() => {
+    elapsed++;
+    document.getElementById('timer').textContent = formatTime(elapsed);
+  }, 1000);
+}
+function stopTimer() { clearInterval(timerInterval); }
+
+// ─────────────────────────────────────────────
+//  SPEECH RECOGNITION
+// ─────────────────────────────────────────────
+function startRecognition() {
+  const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRec) return;
+  recognition = new SpeechRec();
+  recognition.continuous = true;
+  recognition.interimResults = true;
+  recognition.lang = navigator.language || 'en-US';
+  recognition.onresult = e => {
+    let interim = '';
+    let final = '';
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      if (e.results[i].isFinal) final += e.results[i][0].transcript + ' ';
+      else interim += e.results[i][0].transcript;
+    }
+    transcript += final;
+    interimTranscript = interim;
+    const el = document.getElementById('live-transcript');
+    el.innerHTML = transcript + (interim ? `<em>${interim}</em>` : '');
+  };
+  recognition.onerror = () => {};
+  recognition.onend = () => { if (isRecording && !isPaused) recognition.start(); };
+  recognition.start();
+}
+function stopRecognition() {
+  if (recognition) { recognition.onend = null; recognition.stop(); recognition = null; }
+}
+
+// ─────────────────────────────────────────────
+//  RECORD
+// ─────────────────────────────────────────────
+document.getElementById('btn-record').addEventListener('click', async () => {
+  if (!isRecording) await startRecording();
+  else stopRecording();
+});
+
+async function startRecording() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const ctx = new AudioContext();
+    const src = ctx.createMediaStreamSource(stream);
+    analyser = ctx.createAnalyser();
+    analyser.fftSize = 256;
+    dataArray = new Uint8Array(analyser.frequencyBinCount);
+    src.connect(analyser);
+
+    mediaRec = new MediaRecorder(stream);
+    audioChunks = [];
+    mediaRec.ondataavailable = e => { if (e.data.size) audioChunks.push(e.data); };
+    mediaRec.onstop = () => {
+      audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+      audioURL = URL.createObjectURL(audioBlob);
+      stream.getTracks().forEach(t => t.stop());
+      ctx.close();
+      flatBars();
+    };
+    mediaRec.start(250);
+    isRecording = true;
+    elapsed = 0;
+    transcript = '';
+    interimTranscript = '';
+    currentSummary = null;
+    currentTags = [];
+
+    // re-init bars (in case they were previously used)
+    (function() {
+      const w = document.getElementById('waveform');
+      w.innerHTML = '';
+      for (let i = 0; i < BARS; i++) {
+        const b = document.createElement('div');
+        b.className = 'bar';
+        b.style.height = '4px';
+        w.appendChild(b);
+      }
+    })();
+    document.getElementById('idle-msg').style.display = 'none';
+    document.getElementById('waveform').style.display = 'flex';
+    animateWave();
+    startTimer();
+    startRecognition();
+
+    const btn = document.getElementById('btn-record');
+    btn.textContent = 'Stop';
+    btn.classList.add('recording');
+    document.getElementById('btn-pause').disabled = false;
+    document.getElementById('btn-discard').disabled = false;
+    document.getElementById('live-transcript').className = 'active';
+    document.getElementById('summary-panel').style.display = 'none';
+    document.getElementById('btn-summarize').style.display = 'none';
+    document.getElementById('note-title-row').style.display = 'none';
+  } catch(e) {
+    toast('❌ Microphone access denied');
+  }
+}
+
+function stopRecording() {
+  if (!mediaRec) return;
+  mediaRec.stop();
+  isRecording = false;
+  isPaused = false;
+  stopTimer();
+  stopRecognition();
+
+  const btn = document.getElementById('btn-record');
+  btn.textContent = 'Record Again';
+  btn.classList.remove('recording');
+  btn.innerHTML = '🎙 Record Again';
+  document.getElementById('btn-pause').disabled = true;
+
+  // show save row
+  document.getElementById('note-title-row').style.display = 'flex';
+  document.getElementById('btn-summarize').style.display = transcript.trim() ? 'block' : 'none';
+}
+
+document.getElementById('btn-pause').addEventListener('click', () => {
+  if (!mediaRec) return;
+  if (!isPaused) {
+    mediaRec.pause();
+    stopTimer();
+    if (recognition) recognition.stop();
+    isPaused = true;
+    document.getElementById('btn-pause').textContent = '▶ Resume';
+    flatBars();
+  } else {
+    mediaRec.resume();
+    startTimer();
+    if (recognition) recognition.start();
+    isPaused = false;
+    document.getElementById('btn-pause').textContent = '⏸ Pause';
+    animateWave();
+  }
+});
+
+document.getElementById('btn-discard').addEventListener('click', () => {
+  if (!confirm('Discard this recording?')) return;
+  if (mediaRec && isRecording) { mediaRec.stop(); isRecording = false; }
+  stopTimer();
+  stopRecognition();
+  flatBars();
+  resetRecorder();
+  toast('🗑 Recording discarded');
+});
+
+function resetRecorder() {
+  audioBlob = null; audioURL = null; transcript = ''; elapsed = 0;
+  document.getElementById('timer').textContent = '0:00';
+  document.getElementById('live-transcript').textContent = 'Listening…';
+  document.getElementById('live-transcript').className = '';
+  document.getElementById('note-title-row').style.display = 'none';
+  document.getElementById('summary-panel').style.display = 'none';
+  document.getElementById('btn-summarize').style.display = 'none';
+  document.getElementById('btn-pause').disabled = true;
+  document.getElementById('btn-discard').disabled = true;
+  document.getElementById('note-title').value = '';
+  document.getElementById('idle-msg').style.display = '';
+  document.getElementById('waveform').style.display = 'none';
+  const btn = document.getElementById('btn-record');
+  btn.innerHTML = '🎙 Record';
+  btn.classList.remove('recording');
+  btn.disabled = false;
+}
+
+// ─────────────────────────────────────────────
+//  SUMMARIZE
+// ─────────────────────────────────────────────
+document.getElementById('btn-summarize').addEventListener('click', async () => {
+  const btn = document.getElementById('btn-summarize');
+  btn.textContent = '⏳ Summarizing…';
+  btn.disabled = true;
+
+  const { summary, tags } = await summarizeText(transcript);
+  currentSummary = summary;
+  currentTags = tags;
+
+  document.getElementById('summary-text').textContent = summary;
+  const tagsEl = document.getElementById('summary-tags');
+  tagsEl.innerHTML = tags.map(t => `<span class="tag">#${t}</span>`).join('');
+  document.getElementById('summary-panel').style.display = 'block';
+
+  // auto-fill title from first tag or summary first 5 words
+  if (!document.getElementById('note-title').value) {
+    const auto = tags[0]
+      ? tags[0].charAt(0).toUpperCase() + tags[0].slice(1)
+      : summary.split(' ').slice(0,5).join(' ');
+    document.getElementById('note-title').value = auto;
+  }
+
+  btn.textContent = '✨ Re-summarize';
+  btn.disabled = false;
+});
+
+async function summarizeText(text) {
+  // Try to call the built-in Minis model endpoint (same model the user is chatting with)
+  // Falls back to extractive summary if unavailable
+  try {
+    const resp = await fetch('/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-3-5-haiku-20241022',
+        messages: [
+          { role: 'system', content: 'You are a note summarizer. Given a raw voice transcript, output a JSON object with two keys: "summary" (2-3 sentence concise summary) and "tags" (array of 3-5 single-word topic tags, lowercase). Output ONLY the JSON, no markdown.' },
+          { role: 'user', content: text.trim() }
+        ],
+        max_tokens: 300
+      })
+    });
+    if (resp.ok) {
+      const data = await resp.json();
+      const content = data.choices?.[0]?.message?.content || '';
+      const parsed = JSON.parse(content);
+      return { summary: parsed.summary || content, tags: parsed.tags || [] };
+    }
+  } catch(e) {}
+
+  // Extractive fallback
+  return extractiveSummary(text);
+}
+
+function extractiveSummary(text) {
+  const sentences = text.match(/[^.!?]+[.!?]+/g) || [text];
+  const summary = sentences.slice(0, 3).join(' ').trim();
+  // Simple keyword extraction
+  const words = text.toLowerCase().replace(/[^\w\s]/g,'').split(/\s+/);
+  const stopWords = new Set(['the','a','an','and','or','but','in','on','at','to','for','of','with','is','are','was','were','be','been','have','has','had','do','did','will','would','could','should','that','this','it','i','you','we','they','my','your','their','our']);
+  const freq = {};
+  words.forEach(w => { if (w.length > 3 && !stopWords.has(w)) freq[w] = (freq[w]||0)+1; });
+  const tags = Object.entries(freq).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([w])=>w);
+  return { summary: summary || text.slice(0, 200), tags };
+}
+
+// ─────────────────────────────────────────────
+//  SAVE NOTE
+// ─────────────────────────────────────────────
+document.getElementById('btn-save').addEventListener('click', async () => {
+  if (!audioBlob && !transcript.trim()) { toast('Nothing to save yet!'); return; }
+
+  let titleVal = document.getElementById('note-title').value.trim();
+  if (!titleVal) {
+    titleVal = transcript.trim()
+      ? transcript.trim().split(' ').slice(0,6).join(' ') + '…'
+      : 'Voice Note ' + new Date().toLocaleTimeString();
+  }
+
+  // Read folder from select; handle "＋ New…" option
+  let folderVal = document.getElementById('note-folder-select').value;
+  if (folderVal === '__new__') {
+    const newF = (window.prompt('New folder name:') || '').trim();
+    folderVal = newF || 'General';
+    if (newF) addFolder(newF);
+  }
+
+  // Store audio as base64
+  let audioData = null;
+  if (audioBlob) {
+    audioData = await blobToBase64(audioBlob);
+  }
+
+  const note = {
+    id: Date.now().toString(),
+    title: titleVal,
+    transcript: transcript.trim(),
+    summary: currentSummary || null,
+    tags: currentTags,
+    duration: elapsed,
+    created: new Date().toISOString(),
+    starred: false,
+    audioData,
+    folder: folderVal
+  };
+
+  notes.unshift(note);
+  saveNotes();
+  renderNotes();
+  resetRecorder();
+  toast('✅ Note saved!');
+});
+
+function blobToBase64(blob) {
+  return new Promise(res => {
+    const r = new FileReader();
+    r.onloadend = () => res(r.result);
+    r.readAsDataURL(blob);
+  });
+}
+
+// ─────────────────────────────────────────────
+//  SEARCH & FILTER
+// ─────────────────────────────────────────────
+document.getElementById('search-input').addEventListener('input', renderNotes);
+document.getElementById('filter-select').addEventListener('change', renderNotes);
+
+function filteredNotes() {
+  const q = document.getElementById('search-input').value.toLowerCase();
+  const f = document.getElementById('filter-select').value;
+  return notes.filter(n => {
+    const matchQ = !q || n.title.toLowerCase().includes(q)
+      || n.transcript.toLowerCase().includes(q)
+      || (n.summary||'').toLowerCase().includes(q)
+      || n.tags.some(t => t.includes(q));
+    const matchF = f === 'all'
+      || (f === 'starred' && n.starred)
+      || (f === 'summarized' && n.summary);
+    const matchFolder = activeFolder === 'All' || (n.folder || 'General') === activeFolder;
+    return matchQ && matchF && matchFolder;
+  });
+}
+
+// ─────────────────────────────────────────────
+//  RENDER NOTES
+// ─────────────────────────────────────────────
+function renderNotes() {
+  const list = document.getElementById('notes-list');
+  const empty = document.getElementById('empty-state');
+  const filtered = filteredNotes();
+  document.getElementById('note-count').textContent = `${notes.length} note${notes.length !== 1 ? 's' : ''}`;
+  list.innerHTML = '';
+  if (!filtered.length) {
+    empty.style.display = 'block';
+    return;
+  }
+  empty.style.display = 'none';
+  filtered.forEach(n => list.appendChild(buildCard(n)));
+}
+
+function buildCard(n) {
+  const card = document.createElement('div');
+  card.className = 'note-card' + (n.starred ? ' starred' : '');
+  card.dataset.id = n.id;
+
+  const d = new Date(n.created);
+  const dateStr = d.toLocaleDateString(undefined, { month:'short', day:'numeric' })
+    + ' · ' + d.toLocaleTimeString(undefined, { hour:'2-digit', minute:'2-digit' });
+  const dur = n.duration ? ` · ${formatTime(n.duration)}` : '';
+  const folderName = n.folder || 'General';
+  const folderBadge = `<span class="folder-badge">📁 ${escHtml(folderName)}</span>`;
+
+  card.innerHTML = `
+    <div class="note-card-header">
+      <div class="note-icon">🎙️</div>
+      <div class="note-meta">
+        <div class="note-title-text">${escHtml(n.title)}</div>
+        <div class="note-sub">${dateStr}${dur}${folderBadge}</div>
+      </div>
+      <div class="note-actions">
+        <button class="star-btn ${n.starred?'starred':''}" title="Star">${n.starred?'⭐':'☆'}</button>
+        <button class="note-btn" data-action="export" title="Export note">📄</button>
+        <button class="note-btn" data-action="copy" title="Copy transcript">📋</button>
+        <button class="note-btn danger" data-action="delete" title="Delete">🗑</button>
+        <button class="note-btn" data-action="remind" title="Set reminder">⏰</button>
+      </div>
+    </div>
+    <div class="note-body">
+      ${n.remindAt ? `<div class="remind-badge">⏰ ${new Date(n.remindAt).toLocaleString(undefined,{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}</div>` : ''}
+      ${n.audioData ? `<audio class="note-audio" controls src="${n.audioData}"></audio>` : ''}
+      ${n.summary ? `
+        <div class="note-summary-box">
+          <strong>✨ Summary</strong>
+          ${escHtml(n.summary)}
+        </div>` : ''}
+      ${n.tags.length ? `<div class="note-tags">${n.tags.map(t=>`<span class="tag">#${escHtml(t)}</span>`).join('')}</div>` : ''}
+      ${n.transcript ? `
+        <button class="note-transcript-toggle">Show transcript</button>
+        <div class="note-transcript">${escHtml(n.transcript)}</div>` : ''}
+    </div>
+  `;
+
+  // Star
+  card.querySelector('.star-btn').addEventListener('click', () => {
+    const note = notes.find(x => x.id === n.id);
+    if (note) { note.starred = !note.starred; saveNotes(); renderNotes(); }
+  });
+
+  // Export (per-note)
+  card.querySelector('[data-action="export"]').addEventListener('click', () => {
+    openExportModal(n.id);
+  });
+
+  // Copy
+  card.querySelector('[data-action="copy"]').addEventListener('click', () => {
+    const text = [n.title, n.summary ? '--- Summary ---\n'+n.summary : '', n.transcript ? '--- Transcript ---\n'+n.transcript : ''].filter(Boolean).join('\n\n');
+    navigator.clipboard.writeText(text).then(() => toast('📋 Copied!'));
+  });
+
+  // Delete
+  card.querySelector('[data-action="delete"]').addEventListener('click', () => {
+    if (!confirm(`Delete "${n.title}"?`)) return;
+    notes = notes.filter(x => x.id !== n.id);
+    saveNotes();
+    renderNotes();
+    toast('🗑 Deleted');
+  });
+
+  // Transcript toggle
+  const toggle = card.querySelector('.note-transcript-toggle');
+  if (toggle) {
+    toggle.addEventListener('click', () => {
+      const t = card.querySelector('.note-transcript');
+      const open = t.style.display === 'block';
+      t.style.display = open ? 'none' : 'block';
+      toggle.textContent = open ? 'Show transcript' : 'Hide transcript';
+    });
+  }
+
+  // Remind
+  card.querySelector('[data-action="remind"]').addEventListener('click', () => {
+    openReminderModal(n.id);
+  });
+
+  return card;
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ─────────────────────────────────────────────
+//  EXPORT — Markdown & PDF
+// ─────────────────────────────────────────────
+let _exportNoteId = null; // null = "all notes" mode
+
+function noteToMarkdown(n) {
+  const d = new Date(n.created);
+  const dateStr = d.toLocaleDateString(undefined, { year:'numeric', month:'long', day:'numeric' })
+    + ' ' + d.toLocaleTimeString(undefined, { hour:'2-digit', minute:'2-digit' });
+  const dur = n.duration ? formatTime(n.duration) : '—';
+  const tags = n.tags.length ? n.tags.map(t => '#' + t).join(' ') : '(none)';
+  const summary = n.summary ? n.summary : '(none)';
+  const transcript = n.transcript ? n.transcript : '(no transcript)';
+  return [
+    `# ${n.title}`,
+    `**Date:** ${dateStr} · **Duration:** ${dur}`,
+    '',
+    `## Summary`,
+    summary,
+    '',
+    `**Tags:** ${tags}`,
+    '',
+    `## Transcript`,
+    transcript,
+    '',
+    '---',
+    ''
+  ].join('\n');
+}
+
+function downloadText(filename, content) {
+  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1000);
+}
+
+function slugify(str) {
+  return str.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
+}
+
+function exportSingleMarkdown(noteId) {
+  const n = notes.find(x => x.id === noteId);
+  if (!n) return;
+  const content = noteToMarkdown(n);
+  const filename = slugify(n.title) + '.md';
+  downloadText(filename, content);
+  toast('📝 Markdown downloaded');
+  closeExportModal();
+}
+
+function exportAllMarkdown() {
+  if (!notes.length) { toast('No notes to export'); return; }
+  const content = notes.map(noteToMarkdown).join('\n');
+  const date = new Date().toISOString().slice(0, 10);
+  downloadText(`voicenotes-${date}.md`, content);
+  toast(`📚 ${notes.length} notes exported`);
+  closeExportModal();
+}
+
+let _printStyleEl = null;
+
+function injectPrintStyle(noteIds) {
+  removePrintStyle();
+  _printStyleEl = document.createElement('style');
+  _printStyleEl.id = 'vn-print-style';
+  _printStyleEl.setAttribute('media', 'print');
+
+  // Build a note-content list for print
+  const printNotes = noteIds
+    ? notes.filter(n => noteIds.includes(n.id))
+    : notes;
+
+  const notesHtml = printNotes.map(n => {
+    const d = new Date(n.created);
+    const dateStr = d.toLocaleDateString(undefined, { year:'numeric', month:'long', day:'numeric' })
+      + ' ' + d.toLocaleTimeString(undefined, { hour:'2-digit', minute:'2-digit' });
+    const dur = n.duration ? formatTime(n.duration) : '';
+    const tags = n.tags.length ? n.tags.map(t => `<span class="pt">#${escHtml(t)}</span>`).join(' ') : '';
+    return `
+      <div class="pnote">
+        <h2>${escHtml(n.title)}</h2>
+        <p class="pmeta">${escHtml(dateStr)}${dur ? ' · ' + escHtml(dur) : ''}</p>
+        ${n.summary ? `<div class="psummary"><strong>Summary</strong><p>${escHtml(n.summary)}</p></div>` : ''}
+        ${tags ? `<p class="ptags">${tags}</p>` : ''}
+        ${n.transcript ? `<div class="ptranscript"><strong>Transcript</strong><p>${escHtml(n.transcript)}</p></div>` : ''}
+      </div>`;
+  }).join('<div class="ppagebreak"></div>');
+
+  // inject a print-only div
+  let printDiv = document.getElementById('vn-print-content');
+  if (!printDiv) {
+    printDiv = document.createElement('div');
+    printDiv.id = 'vn-print-content';
+    document.body.appendChild(printDiv);
+  }
+  printDiv.innerHTML = `<div class="pheader"><strong>VoiceNotes</strong> · Exported ${new Date().toLocaleDateString()}</div>${notesHtml}`;
+
+  _printStyleEl.textContent = `
+    /* Hide everything except the print content div */
+    body > *:not(#vn-print-content) { display: none !important; }
+    #vn-print-content { display: block !important; font-family: Georgia, serif; color: #000; padding: 0; margin: 0; }
+    .pheader { font-size: 11pt; color: #666; margin-bottom: 24pt; border-bottom: 1px solid #ccc; padding-bottom: 8pt; }
+    .pnote { margin-bottom: 24pt; }
+    .pnote h2 { font-size: 16pt; margin-bottom: 4pt; }
+    .pmeta { font-size: 9pt; color: #666; margin-bottom: 10pt; }
+    .psummary, .ptranscript { margin-bottom: 10pt; }
+    .psummary strong, .ptranscript strong { font-size: 9pt; text-transform: uppercase; letter-spacing: .06em; color: #444; display: block; margin-bottom: 4pt; }
+    .psummary p, .ptranscript p { font-size: 11pt; line-height: 1.6; white-space: pre-wrap; }
+    .ptags { font-size: 9pt; color: #555; margin-bottom: 8pt; }
+    .pt { margin-right: 6pt; }
+    .ppagebreak { page-break-after: always; }
+  `;
+  document.head.appendChild(_printStyleEl);
+}
+
+function removePrintStyle() {
+  if (_printStyleEl) { _printStyleEl.remove(); _printStyleEl = null; }
+  const pd = document.getElementById('vn-print-content');
+  if (pd) pd.remove();
+}
+
+function exportSinglePDF(noteId) {
+  injectPrintStyle([noteId]);
+  closeExportModal();
+  setTimeout(() => {
+    window.print();
+    setTimeout(removePrintStyle, 1500);
+  }, 80);
+}
+
+function exportAllPDF() {
+  if (!notes.length) { toast('No notes to export'); return; }
+  injectPrintStyle(null);
+  closeExportModal();
+  setTimeout(() => {
+    window.print();
+    setTimeout(removePrintStyle, 1500);
+  }, 80);
+}
+
+// ── Modal open/close ──
+function openExportModal(noteId) {
+  _exportNoteId = noteId || null;
+  const overlay = document.getElementById('export-overlay');
+  const singleSection = document.getElementById('export-single-section');
+  const subtitle = document.getElementById('export-subtitle');
+
+  if (_exportNoteId) {
+    const n = notes.find(x => x.id === _exportNoteId);
+    subtitle.textContent = n ? `"${n.title}"` : 'Choose a format';
+    singleSection.style.display = 'block';
+  } else {
+    subtitle.textContent = `${notes.length} note${notes.length !== 1 ? 's' : ''}`;
+    singleSection.style.display = 'none';
+  }
+  overlay.classList.add('open');
+}
+
+function closeExportModal() {
+  document.getElementById('export-overlay').classList.remove('open');
+  _exportNoteId = null;
+}
+
+// ── Wire up modal buttons ──
+document.getElementById('export-close').addEventListener('click', closeExportModal);
+document.getElementById('export-overlay').addEventListener('click', e => {
+  if (e.target === document.getElementById('export-overlay')) closeExportModal();
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeExportModal();
+});
+
+document.getElementById('export-md-single').addEventListener('click', () => {
+  if (_exportNoteId) exportSingleMarkdown(_exportNoteId);
+});
+document.getElementById('export-pdf-single').addEventListener('click', () => {
+  if (_exportNoteId) exportSinglePDF(_exportNoteId);
+});
+document.getElementById('export-md-all').addEventListener('click', exportAllMarkdown);
+document.getElementById('export-pdf-all').addEventListener('click', exportAllPDF);
+
+// ── Global "Export All" header button ──
+document.getElementById('btn-export-all').addEventListener('click', () => {
+  openExportModal(null);
+});
+
+// ─────────────────────────────────────────────
+//  INIT
+// ─────────────────────────────────────────────
+// Build static bars (no animation, no AudioContext) just for visual placeholder
+(function initBars() {
+  const w = document.getElementById('waveform');
+  w.innerHTML = '';
+  for (let i = 0; i < BARS; i++) {
+    const b = document.createElement('div');
+    b.className = 'bar';
+    b.style.height = '4px';
+    w.appendChild(b);
+  }
+  w.style.display = 'none';
+})();
+renderNotes();
+
+// ─────────────────────────────────────────────
+//  FOLDERS
+// ─────────────────────────────────────────────
+function saveFolders() {
+  localStorage.setItem('vn_folders', JSON.stringify(folders));
+}
+
+function addFolder(name) {
+  const trimmed = name.trim();
+  if (!trimmed || folders.includes(trimmed)) return;
+  folders.push(trimmed);
+  saveFolders();
+  renderFolderBar();
+  populateFolderSelect();
+}
+
+function populateFolderSelect() {
+  const sel = document.getElementById('note-folder-select');
+  if (!sel) return;
+  const cur = sel.value;
+  sel.innerHTML = '';
+  folders.forEach(f => {
+    const opt = document.createElement('option');
+    opt.value = f;
+    opt.textContent = f;
+    sel.appendChild(opt);
+  });
+  const newOpt = document.createElement('option');
+  newOpt.value = '__new__';
+  newOpt.textContent = '＋ New…';
+  sel.appendChild(newOpt);
+  // restore selection if still valid
+  if (cur && [...sel.options].some(o => o.value === cur)) sel.value = cur;
+}
+
+// Close any open context menu
+let _openCtxMenu = null;
+function closeCtxMenu() {
+  if (_openCtxMenu) { _openCtxMenu.remove(); _openCtxMenu = null; }
+}
+document.addEventListener('click', closeCtxMenu);
+
+function renderFolderBar() {
+  const bar = document.getElementById('folder-bar');
+  bar.innerHTML = '';
+
+  // "All" pill
+  const allPill = document.createElement('div');
+  allPill.className = 'folder-pill' + (activeFolder === 'All' ? ' active' : '');
+  allPill.textContent = '📁 All';
+  allPill.addEventListener('click', () => {
+    activeFolder = 'All';
+    renderFolderBar();
+    renderNotes();
+  });
+  bar.appendChild(allPill);
+
+  // One pill per folder
+  folders.forEach(fname => {
+    const pill = document.createElement('div');
+    pill.className = 'folder-pill' + (activeFolder === fname ? ' active' : '');
+    pill.textContent = fname;
+    pill.addEventListener('click', (e) => {
+      closeCtxMenu();
+      activeFolder = fname;
+      renderFolderBar();
+      renderNotes();
+    });
+
+    // Right-click / long-press context menu (not for "General" delete but still allow rename)
+    pill.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      closeCtxMenu();
+
+      const menu = document.createElement('div');
+      menu.className = 'folder-ctx-menu';
+
+      const renameBtn = document.createElement('button');
+      renameBtn.textContent = '✏️ Rename';
+      renameBtn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        closeCtxMenu();
+        const newName = (window.prompt(`Rename folder "${fname}" to:`, fname) || '').trim();
+        if (!newName || newName === fname) return;
+        if (folders.includes(newName)) { toast('A folder with that name already exists.'); return; }
+        // Rename in folders array
+        const idx = folders.indexOf(fname);
+        folders[idx] = newName;
+        saveFolders();
+        // Update all notes in this folder
+        notes.forEach(n => { if ((n.folder || 'General') === fname) n.folder = newName; });
+        saveNotes();
+        if (activeFolder === fname) activeFolder = newName;
+        renderFolderBar();
+        populateFolderSelect();
+        renderNotes();
+        toast(`📁 Renamed to "${newName}"`);
+      });
+      menu.appendChild(renameBtn);
+
+      const delBtn = document.createElement('button');
+      delBtn.textContent = '🗑 Delete folder';
+      delBtn.className = 'danger';
+      delBtn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        closeCtxMenu();
+        if (!confirm(`Delete folder "${fname}"? All notes will move to General.`)) return;
+        folders = folders.filter(f => f !== fname);
+        saveFolders();
+        notes.forEach(n => { if ((n.folder || 'General') === fname) n.folder = 'General'; });
+        saveNotes();
+        if (activeFolder === fname) activeFolder = 'All';
+        renderFolderBar();
+        populateFolderSelect();
+        renderNotes();
+        toast(`🗑 Folder "${fname}" deleted`);
+      });
+      menu.appendChild(delBtn);
+
+      pill.appendChild(menu);
+      _openCtxMenu = menu;
+    });
+
+    bar.appendChild(pill);
+  });
+
+  // "+ New Folder" pill
+  const newPill = document.createElement('div');
+  newPill.className = 'folder-pill new-folder-pill';
+  newPill.textContent = '＋ New Folder';
+  newPill.addEventListener('click', () => {
+    const name = (window.prompt('New folder name:') || '').trim();
+    if (!name) return;
+    if (folders.includes(name)) { toast('Folder already exists!'); return; }
+    addFolder(name);
+    activeFolder = name;
+    renderFolderBar();
+    renderNotes();
+    toast(`📁 Folder "${name}" created`);
+  });
+  bar.appendChild(newPill);
+
+  populateFolderSelect();
+}
+
+// Initial render of folder bar
+renderFolderBar();
+
+// ─────────────────────────────────────────────
+//  REMINDER FEATURE
+// ─────────────────────────────────────────────
+let _rmNoteId = null;
+
+function defaultTomorrow9() {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  d.setHours(9, 0, 0, 0);
+  return toDatetimeLocal(d);
+}
+
+function toDatetimeLocal(d) {
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function openReminderModal(noteId) {
+  const note = notes.find(n => n.id === noteId);
+  if (!note) return;
+  _rmNoteId = noteId;
+
+  document.getElementById('rm-note-title-display').textContent = note.title;
+  document.getElementById('rm-datetime').value = note.remindAt
+    ? toDatetimeLocal(new Date(note.remindAt))
+    : defaultTomorrow9();
+
+  const snippet = (note.summary || note.transcript || '').slice(0, 100).trim();
+  document.getElementById('rm-note-text').value = snippet;
+
+  // Hide shell block until user clicks Set
+  document.getElementById('rm-shell-block').classList.remove('visible');
+
+  document.getElementById('reminder-overlay').classList.add('open');
+}
+
+function closeReminderModal() {
+  document.getElementById('reminder-overlay').classList.remove('open');
+  _rmNoteId = null;
+}
+
+// Quick-pick buttons
+document.querySelectorAll('.rm-quickpick').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const type = btn.dataset.quick;
+    const d = new Date();
+    if (type === '1h') {
+      d.setHours(d.getHours() + 1, 0, 0, 0);
+    } else if (type === 'tomorrow9') {
+      d.setDate(d.getDate() + 1);
+      d.setHours(9, 0, 0, 0);
+    } else if (type === 'nextmon9') {
+      const day = d.getDay(); // 0=Sun
+      const daysUntilMon = ((1 - day + 7) % 7) || 7;
+      d.setDate(d.getDate() + daysUntilMon);
+      d.setHours(9, 0, 0, 0);
+    }
+    document.getElementById('rm-datetime').value = toDatetimeLocal(d);
+  });
+});
+
+document.getElementById('rm-btn-cancel').addEventListener('click', closeReminderModal);
+document.getElementById('reminder-overlay').addEventListener('click', e => {
+  if (e.target === document.getElementById('reminder-overlay')) closeReminderModal();
+});
+
+document.getElementById('rm-btn-set').addEventListener('click', async () => {
+  const note = notes.find(n => n.id === _rmNoteId);
+  if (!note) return;
+
+  const dtVal = document.getElementById('rm-datetime').value;
+  if (!dtVal) { toast('⚠️ Pick a date and time'); return; }
+
+  const isoDate = new Date(dtVal).toISOString();
+  const noteText = document.getElementById('rm-note-text').value.trim();
+  const safeTitle = note.title.replace(/"/g, '\\"');
+  const safeNoteText = noteText.replace(/"/g, '\\"');
+
+  const dt = new Date(dtVal);
+  const hhmm = `${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`;
+
+  const appleCmd = `apple-reminders create --title "Follow up: ${safeTitle}" --due "${isoDate}" --notes "${safeNoteText}"`;
+  const minisCmd = `minis-scheduled create --prompt "Remind me about my voice note: ${safeTitle}" --time ${hhmm}`;
+
+  // Call the local shell bridge (server.py running on port 7799)
+  let success = false;
+  try {
+    const resp = await fetch('http://127.0.0.1:7799/api/shell', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ command: appleCmd }),
+      signal: AbortSignal.timeout(6000)
+    });
+    if (resp.ok) {
+      const data = await resp.json();
+      success = data.ok === true;
+    }
+  } catch(e) { /* bridge not running — show copy-paste fallback */ }
+
+  // Store the reminder time on the note regardless
+  note.remindAt = isoDate;
+  saveNotes();
+  renderNotes();
+
+  if (success) {
+    toast('⏰ Reminder set via apple-reminders!');
+    closeReminderModal();
+  } else {
+    // Show shell commands for user to copy & run
+    document.getElementById('rm-apple-cmd').textContent = appleCmd;
+    document.getElementById('rm-minis-cmd').textContent = minisCmd;
+    document.getElementById('rm-shell-block').classList.add('visible');
+
+    // Also try URL scheme as a courtesy
+    try { window.open('x-apple-reminder://'); } catch(e) {}
+
+    toast('⏰ Reminder saved — copy & run the command below');
+  }
+});
+
+// Copy buttons inside the modal
+document.getElementById('rm-copy-apple').addEventListener('click', () => {
+  navigator.clipboard.writeText(document.getElementById('rm-apple-cmd').textContent)
+    .then(() => toast('📋 apple-reminders command copied!'));
+});
+document.getElementById('rm-copy-minis').addEventListener('click', () => {
+  navigator.clipboard.writeText(document.getElementById('rm-minis-cmd').textContent)
+    .then(() => toast('📋 minis-scheduled command copied!'));
+});
+</script>
+
+</body>
+</html>
